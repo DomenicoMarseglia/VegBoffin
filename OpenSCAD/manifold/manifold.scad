@@ -506,7 +506,24 @@ module Nema17MotorPlate(numOutlets)
             if (numOutlets > 2)
             {
                 translate([-motorBodyWidth/2,-motorBodyWidth/2,0])
-                    cube([numOutlets*motorBodyWidth + (numOutlets-1) * motorGap,motorBodyWidth,motorPlateThickness]);
+                {
+                    w = numOutlets*motorBodyWidth + (numOutlets-1) * motorGap;
+                    d = motorBodyWidth;
+                    h = motorPlateThickness;
+                    cornerRadius = 4;
+                    translate([cornerRadius,cornerRadius,0])
+                        cylinder(r=cornerRadius,h=motorPlateThickness);
+                    translate([w-cornerRadius,cornerRadius,0])
+                        cylinder(r=cornerRadius,h=motorPlateThickness);
+                    translate([w-cornerRadius,d-cornerRadius,0])
+                        cylinder(r=cornerRadius,h=motorPlateThickness);
+                    translate([cornerRadius,d-cornerRadius,0])
+                        cylinder(r=cornerRadius,h=motorPlateThickness);
+                    translate([cornerRadius,0,0])
+                        cube([w-2*cornerRadius,d,h]);
+                    translate([0,cornerRadius,0])
+                        cube([w,d-2*cornerRadius,h]);
+                }
             }
             else
             {
@@ -600,7 +617,6 @@ Assembly();
 
 // TODO:
 // Simplify turret body as single rotation
-// Add chamfers to motor bracket corners
 // Add spacers to motor bracket to account for long screws
 // Make seal for hose adapters thinner
 // Add rotated-for-print bits
