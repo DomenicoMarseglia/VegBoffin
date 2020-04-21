@@ -1,3 +1,6 @@
+// This is an OpenSCAD model of a Srewfix Flomasta 1908F Ceramic tap gland
+// https://www.screwfix.com/p/flomasta-ceramic-tap-glands-24mm-x-2-pack/1908f
+// It is not meant to be 3d printed, is is only meant as a visual aid in assembly models
 
 
 use <bsp_threads.scad>
@@ -35,7 +38,7 @@ module SplinedCylinder(h,d1,d2,numSplines)
 }
 
 
-module Valve1908F()
+module TapGland1908F()
 {
     color("gold")
     difference()
@@ -94,5 +97,5 @@ module Valve1908F()
 }
 
 
-valve1908F();
+TapGland1908F();
 
