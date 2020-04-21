@@ -1,16 +1,33 @@
 
+
+
+// TODO:
+// Add rotated-for-print bits
+// Allow for case numOutlets = 1 or other odd value
+// Optionaly combine motor brackets for smaller manifolds
+// Model assembly and mounting screws
+// Add vegboffin logo
+// Make motor plate work with M3x10 bolts
+// Add features to motor plate to stop pillars from twisting
+// Fix tap adapter. Splines are too loose, motor connector is too tight
+
+
 include <BOSL/constants.scad>
 use <BOSL/threading.scad>
 use <BOSL/nema_steppers.scad>
+use <BOSL/transforms.scad>
 
 
-$fn = 40;
+$fn = 200;
 
-use <valve1908F.scad>
+use <TapGland1908F.scad>
 use <bsp_threads.scad>
 
 
 epsilon = 0.01;
+
+
+inletsOnOppositeSideToOutlets = true;
 
 // This is the width of a Nema17 motor
 motorBodyWidth = 42;
@@ -25,7 +42,7 @@ motorShaftSpacing = motorBodyWidth + motorGap;
 // The gap between the water connectors must be enough to fit the hose adapters
 waterConnectorSpacing = 40;
 
-// This is the diameter of the internal pipes that carry water between the connecotrs and the valves
+// This is the diameter of the internal pipes that carry water between the connectors and the valves
 boreDiameter = 6;
 
 // This is the radius of the bends in the internal plumbing
@@ -58,7 +75,7 @@ bracketToShaftXYOffset = 12;
 // Each cartridge is screwed into a turret that is this height above the XY plane
 turretHeight = 32;
 
-// This is the diamter of the main cylindrical shape into which the cardtidge screws
+// This is the diameter of the main cylindrical shape into which the cartridge screws
 turretOuterDiameter = 30;
 
 outletDownpipeY = 2*boreCenterHeight;
@@ -70,10 +87,25 @@ function motorX(outletNumber) = outletNumber * motorShaftSpacing;
 
 function hoseX(hoseNumber, numOutlets) = hoseNumber * waterConnectorSpacing + manifoldMidX(numOutlets) - waterConnectorSpacing * numOutlets /2;
 
-function outletHoseX(outletNumber, totalOutlets, motorSpacing, outletSpacing) = 
-    outletNumber >=  totalOutlets / 2 ? hoseX(outletNumber+1,totalOutlets) : hoseX(outletNumber,totalOutlets);
+//function outletHoseX(outletNumber, numInlets, numOutlets, motorSpacing, outletSpacing) = 
+  //  outletNumber >=  numOutlets / 2 ? hoseX(outletNumber+numInlets,numOutlets) : hoseX(outletNumber,numOutlets);
 
 
+// The inlets are evenly spaced in the X direction about the mid point of the manifold
+function inletHoseX(inletNumber, numInlets, numOutlets) = manifoldMidX(numOutlets) - ((numInlets-1) * waterConnectorSpacing/2)+ (inletNumber-1) * waterConnectorSpacing;
+
+function outletHoseXWithInletsBetweenOutlets(outletNumber, numInlets, numOutlets) = 
+    outletNumber <=  numOutlets / 2 ? 
+        inletHoseX(outletNumber,numInlets+numOutlets, numOutlets):
+        inletHoseX(outletNumber+numInlets,numInlets+numOutlets, numOutlets);
+
+function outletHoseXWithInletsOppositeOutlets(outletNumber, numInlets, numOutlets) = 
+        inletHoseX(outletNumber,numOutlets, numOutlets);
+
+function outletHoseX(outletNumber, numInlets, numOutlets) = 
+    inletsOnOppositeSideToOutlets ? 
+        outletHoseXWithInletsOppositeOutlets(outletNumber, numInlets, numOutlets):
+        outletHoseXWithInletsBetweenOutlets(outletNumber, numInlets, numOutlets);
 
 module Tooth(height,width,depth)
 {
@@ -175,19 +207,19 @@ module MountingScrewClearanceHole()
 
 
 
-module ManifoldInletPlumbing(numOutlets, ioY)
+module WShapeManifold(numConnections, spacing)
 {
     ioHeight = 2*boreCenterHeight;
     
-    // first inlet downpipe and elbow
+    // first outlet downpipe and elbow
     translate([0 ,0, boreCenterHeight])
         rotate([0,-90,0])
             SimpleElbow(boreDiameter, bendRadius);
     translate([0,0,boreCenterHeight-epsilon+bendRadius])
-        cylinder(d=boreDiameter, h=50+epsilon);
+        cylinder(d=boreDiameter, h=ioHeight+epsilon);
     
-    // last inlet downpipe and elbow
-    translate([(numOutlets-1)*motorShaftSpacing,0,0])
+    // last outlet downpipe and elbow
+    translate([(numConnections-1)*spacing,0,0])
     {
         translate([0 ,0, boreCenterHeight])
             rotate([0,180,0])
@@ -196,82 +228,37 @@ module ManifoldInletPlumbing(numOutlets, ioY)
             cylinder(d=boreDiameter, h=ioHeight+epsilon);
     }
 
-    if (numOutlets > 2)
+    if (numConnections > 2)
     {
         
         // down pipes for inner inlets
-        for (inletNumber = [1:numOutlets-2])
+        for (connectorNumber = [1:numConnections-2])
         {
-            x = motorX(inletNumber);
+            x = spacing*connectorNumber;
             translate([x,0,boreCenterHeight-epsilon])
-                cylinder(d=boreDiameter, h=50+epsilon);
+                cylinder(d=boreDiameter, h=ioHeight+bendRadius+epsilon);
         }
    
     }
-    // connector pipe between inlets
-    translate([bendRadius ,0,boreCenterHeight])
+    // connector pipe between outlets
+    translate([bendRadius-epsilon ,0,boreCenterHeight])
         rotate([0,90,0])
-            cylinder(d=boreDiameter, h=(numOutlets-1)*motorShaftSpacing-2*bendRadius+2*epsilon);
-    
-    inletX =  manifoldMidX(numOutlets);
-    
+            cylinder(d=boreDiameter, h=(numConnections-1)*spacing-2*bendRadius+2*epsilon);
 
-    translate([inletX,ioY,boreCenterHeight])
-        rotate([0,180,90])
-            SimpleElbow(boreDiameter, bendRadius);
-    translate([inletX,ioY,bendRadius+boreCenterHeight-epsilon])
-        cylinder(d=boreDiameter, h=ioHeight+epsilon);
-    translate([inletX,-epsilon,boreCenterHeight])
-        rotate([-90,0,0])
-        cylinder(d=boreDiameter, h=ioY-bendRadius+2*epsilon);
 }
 
-module ManifoldOuletPlumbing(outletNumber, totalOutlets)
+module HoseConectorFluidPathway(hoseThreadLength)
 {
-    ioY = turretOuterDiameter +  waterConnectorSpacing/2;
     ioHeight = 2*boreCenterHeight;
     
-    x1 = outletHoseX(outletNumber, totalOutlets, motorShaftSpacing, waterConnectorSpacing);
-    x2 = motorX(outletNumber);
-    y1 = ioY;
-    y2 = turretOuterDiameter/2;
-    
-    totalLength = sqrt( (x1-x2) * (x1-x2) + (y1-y2) * (y1-y2));
-    
-    innerLength = totalLength - 2*bendRadius;
-    
-    angle = atan ((x1-x2) / (y1-y2));
-
-    translate([0,0,boreCenterHeight])
-    {
-        translate([x2,y2,0])
-            rotate([0,0,-angle])
-            {
-                rotate([0,-90,90])
-                    SimpleElbow(boreDiameter, bendRadius);
-                translate([0,bendRadius,0])
-                    rotate([-90,0,0])
-                        cylinder(d=boreDiameter,h=innerLength);
-                translate([0,totalLength,0])
-                    rotate([0,180,90])
-                        SimpleElbow(boreDiameter, bendRadius);
-            }
-    }
-    
-    translate([x1,y1,boreCenterHeight-epsilon+bendRadius])
-        cylinder(d=boreDiameter, h=ioHeight+epsilon);
-
-
-    translate([x2,0,boreCenterHeight-epsilon+2*bendRadius])
-        rotate([-90,0,0])
-            cylinder(d=boreDiameter,h=turretOuterDiameter/2-bendRadius);
-
-    translate([x2,y2,boreCenterHeight-epsilon+2*bendRadius])
-        rotate([0,0,-90])
-            SimpleElbow(boreDiameter, bendRadius);
+    translate([0,0,ioHeight+epsilon])
+        cylinder(h=hoseThreadLength/2+2*epsilon, d1=boreDiameter, d2=20);
+    translate([0,0,ioHeight+epsilon+hoseThreadLength/2])
+        cylinder(h=hoseThreadLength/2+2*epsilon, d=20);
 }
 
-module CardridgeCavity()
+
+module CartridgeCavity()
 {
     // Thread into which cartridge screws
     translate([0,0,turretHeight-8-epsilon])
@@ -285,13 +272,152 @@ module CardridgeCavity()
 
     // Cavity for main body of cartridge
     translate([0,0,turretHeight-21])
-    cylinder(h=21+epsilon,d=18.5); 
+        cylinder(h=21+epsilon,d=18.5); 
 
 
     translate([0,0,15])
-        cylinder(h=turretHeight,d=boreDiameter);
+        cylinder(h=turretHeight-15,d=boreDiameter);
     
 }
+
+
+// This module is the cutout for the inlet plumbing
+// numInlets is the number of inlet connectors. 
+// This may be more than one if the manifold is configured to be daisychained with other manifolds
+// numOutlets is the number of outlets (the number of valves)
+module ManifoldInletPlumbing(numInlets, numOutlets, ioY, hoseThreadLength)
+{
+    ioHeight = 2*boreCenterHeight;
+
+    x = manifoldMidX(numOutlets);
+    y = inletsOnOppositeSideToOutlets ? -ioY : ioY;
+
+    if (numOutlets == 1)
+    {
+        translate([x,0,boreCenterHeight])
+            rotate([0,180,90 ])
+                SimpleElbow(boreDiameter, bendRadius);
+    }
+    else
+    {
+        WShapeManifold(numOutlets, motorShaftSpacing);
+
+        translate([x,-epsilon,boreCenterHeight])
+            rotate([-90,0,inletsOnOppositeSideToOutlets ? 180:0])
+                cylinder(d=boreDiameter, h=ioY/2);
+    }
+    
+
+    if (numInlets == 1)
+    {
+        hoseX = inletHoseX(1, numInlets, numOutlets);
+            translate([hoseX,y,0])
+        HoseConectorFluidPathway(hoseThreadLength);
+        
+        rotate([0,0,0])
+        {
+            translate([x,y,boreCenterHeight])
+                rotate([0,180,-90])
+                    SimpleElbow(boreDiameter, bendRadius);
+            translate([x,y,bendRadius+boreCenterHeight-epsilon])
+                cylinder(d=boreDiameter, h=ioHeight+epsilon);
+            translate([x,-epsilon,boreCenterHeight])
+                rotate([-90,0,inletsOnOppositeSideToOutlets ? 180:0])
+                    cylinder(d=boreDiameter, h=ioY-bendRadius+2*epsilon);
+        }
+    }
+    else
+    {
+        for (inletNumber=[1:numInlets])
+        {
+            hoseX = inletHoseX(inletNumber, numInlets, numOutlets);
+            translate([hoseX,y,0])
+                HoseConectorFluidPathway(hoseThreadLength);
+        }            
+        
+
+        translate([x - (numInlets-1) * waterConnectorSpacing / 2,y,0])
+            WShapeManifold(numInlets, waterConnectorSpacing);
+
+        translate([x,-bendRadius-epsilon,boreCenterHeight])
+            rotate([-90,0,inletsOnOppositeSideToOutlets ? 180:0])
+                cylinder(d=boreDiameter, h=ioY-bendRadius);
+    }
+}
+
+module ManifoldOuletPlumbing(outletNumber, numInlets, numOutlets, hoseThreadLength)
+{
+    ioY = turretOuterDiameter +  waterConnectorSpacing/2;
+    ioHeight = 2*boreCenterHeight;
+    
+    x1 = outletHoseX(outletNumber, numInlets, numOutlets);
+    x2 = motorX(outletNumber-1);
+    y1 = ioY;
+    y2 = turretOuterDiameter/2;
+    
+    totalLength = sqrt( (x1-x2) * (x1-x2) + (y1-y2) * (y1-y2));
+    
+    innerLength = totalLength - 2*bendRadius;
+    
+    angle = atan ((x1-x2) / (y1-y2));
+
+    translate([x2,0,0])
+        CartridgeCavity();
+
+    translate([0,0,boreCenterHeight])
+    {
+        translate([x2,y2,0])
+            rotate([0,0,-angle])
+            {
+                rotate([0,-90,90])
+                    SimpleElbow(boreDiameter, bendRadius);
+                
+                // An angled bore to connect the cavity outlet downpipe to the connector elbow
+                translate([0,bendRadius-epsilon,0])
+                    rotate([-90,0,0])
+                        cylinder(d=boreDiameter,h=innerLength+2*epsilon);
+                translate([0,totalLength,0])
+                    rotate([0,180,90])
+                        SimpleElbow(boreDiameter, bendRadius);
+            }
+    }
+    
+    // A bore that goes up into the connector
+    translate([x1,y1,boreCenterHeight-epsilon+bendRadius])
+        cylinder(d=boreDiameter, h=ioHeight+epsilon);
+
+
+    // A bore that goes into the center of the cavity
+    translate([x2,0,boreCenterHeight-epsilon+2*bendRadius])
+        rotate([-90,0,0])
+            cylinder(d=boreDiameter,h=turretOuterDiameter/2-bendRadius+epsilon);
+
+    // An elbow that goes horizonally from the cavity outlet down
+    translate([x2,y2,boreCenterHeight-epsilon+2*bendRadius])
+        rotate([0,0,-90])
+            SimpleElbow(boreDiameter, bendRadius);
+    
+    
+    translate([x1,y1,0])
+        HoseConectorFluidPathway(hoseThreadLength);
+}
+
+
+module ManifoldOutletPlumbingSet(numInlets, numOutlets, hoseThreadLength)
+{
+    for (outlet = [1:numOutlets])
+    {
+        ManifoldOuletPlumbing(outlet, numInlets, numOutlets, hoseThreadLength);
+    }
+}
+
+module RoundTopCylinder(d,h)
+{
+    translate([0,0,h-d/2])
+        sphere(d=d);
+    cylinder(d=d,h=h-d/2);
+}
+
 
 module TurretOuter(addInitialSupportLugs, addFinalSupportLugs)
 {
@@ -321,27 +447,90 @@ module TurretOuter(addInitialSupportLugs, addFinalSupportLugs)
             }
         }
     }
-    translate([0,0,outletDownpipeY/2])
-        cylinder(d=turretOuterDiameter,h=turretHeight-outletDownpipeY/2);
     
-    translate([0,0,outletDownpipeY/2])
-            rotate_extrude(convexity=10, angle=360) 
-                translate(v=[turretOuterDiameter/2-outletDownpipeY/2,0,0]) 
-                    circle(d=outletDownpipeY); 
-    translate([0,0,0])
-        cylinder(d=turretOuterDiameter-outletDownpipeY,h=outletDownpipeY/2);
+    cylinder(d=turretOuterDiameter, h=turretHeight);
     
-    
-    
-    translate([0,turretOuterDiameter/2,boreCenterHeight])
-        cylinder(d=2*boreCenterHeight,h=2*bendRadius);
-    translate([0,turretOuterDiameter/2,boreCenterHeight+2*bendRadius])
-        sphere(d=2*boreCenterHeight);
+    translate([0,turretOuterDiameter/2,0])
+        RoundTopCylinder(d=2*boreCenterHeight,h = 2*boreCenterHeight + 2*bendRadius);
+}
 
+
+module FluidPathways(numInlets, numOutlets, ioY, hoseThreadLength)
+{
+    ManifoldInletPlumbing(numInlets, numOutlets, ioY, hoseThreadLength);
+    ManifoldOutletPlumbingSet(numInlets, numOutlets, hoseThreadLength);
+}
+
+module HoseConnectorOuter(hoseThreadLength)
+{
+    ioHeight = 2*boreCenterHeight;
+    translate([0,0,ioHeight])
+        ThreeQuaterInchBspThread(hoseThreadLength, internal=false);
+    translate([0,0,0])
+        cylinder(d2=25, d1=0,h=ioHeight);
+}
+
+
+
+module MountingHoleSet(numInlets, numOutlets, ioY)
+{
+    ioY = turretOuterDiameter +  waterConnectorSpacing/2;
+    holeY = ioY/2;
+    
+    firstConnectorX = outletHoseX(1, numInlets, numOutlets);
+    secondConnectorIsInput = ((inletsOnOppositeSideToOutlets == false) && (numOutlets == 2));
+    secondConnectorX = secondConnectorIsInput ? inletHoseX(1, numInlets, numOutlets):outletHoseX(2, numInlets, numOutlets);
+    
+    lastConnectorX = outletHoseX(numOutlets, numInlets, numOutlets);
+    penultimateConnectorIsInput = ((inletsOnOppositeSideToOutlets == false) && (numOutlets == 2));
+    penultimateConnectorX = penultimateConnectorIsInput ? inletHoseX(numInlets, numInlets, numOutlets):outletHoseX(numOutlets-1, numInlets, numOutlets);
+        
+    holesDuplicated = (firstConnectorX == penultimateConnectorX) && (secondConnectorX == lastConnectorX);
+    
+    holeX1 = holesDuplicated ? manifoldMidX(numOutlets) - 10 : (firstConnectorX + secondConnectorX)/2;
+    holeX2 = holesDuplicated ? manifoldMidX(numOutlets) + 10 : (penultimateConnectorX + lastConnectorX)/2;
+
+    translate([holeX1,holeY,outletDownpipeY])
+        MountingScrewClearanceHole();
+    translate([holeX2,holeY,outletDownpipeY])
+        MountingScrewClearanceHole();
+}
+
+module FlowArrow()
+{
+    translate([0,40,0])
+    linear_extrude(1)
+    {
+        polygon([ [0,0], [-20,-30], [-10,-30],[-10,-80],[10,-80] , [10,-30], [20,-30] ]);
+    }
+}
+
+
+module FlowArrowSet(manifoldThickness, numInlets = 2, numOutlets = 4)
+{
+    ioY = turretOuterDiameter +  waterConnectorSpacing/2;
+    inArrowY = inletsOnOppositeSideToOutlets ? -ioY/2 : ioY/2;
+    inArrowZRot = inletsOnOppositeSideToOutlets ? 0: 180;
+    translate([motorX(numOutlets-1)/2,inArrowY,manifoldThickness/2])
+        rotate([0,0,inArrowZRot])
+            scale([0.2,0.2,manifoldThickness/2+1])
+                FlowArrow();
+    
+    for (arrow=[0:numOutlets-1])
+    {
+        outArrowY = ioY/2;
+        outArrowX = (motorX(arrow) + outletHoseX(arrow+1, numInlets, numOutlets)) /2;
+        outArrowZRot = atan( (motorX(arrow) - outletHoseX(arrow+1, numInlets, numOutlets)) / ioY);
+        translate([outArrowX,outArrowY,manifoldThickness/2])
+            rotate([0,0,outArrowZRot])
+                scale([0.2,0.2,manifoldThickness/2+1])
+                    FlowArrow();
+    }
     
 }
 
-module NWayManifold(numOutlets)
+
+module NWayManifold(numInlets = 2, numOutlets = 4)
 {
     ioHeight = 2*boreCenterHeight;
     
@@ -353,9 +542,9 @@ module NWayManifold(numOutlets)
     {
         union()
         {
-            if (1)
-            {
-            
+            color("red")
+                FlowArrowSet(outletDownpipeY, numInlets, numOutlets);
+
             for (outlet = [0:numOutlets-1])
             {
                 addInitialSupportLugs = (outlet!=0) || (numOutlets < 4);
@@ -367,77 +556,90 @@ module NWayManifold(numOutlets)
             }
 
 
-            translate([0,0,outletDownpipeY/2])
+            //translate([0,0,outletDownpipeY/2])
+            {
             
-            hull()
-            {
-                translate([motorX(0),0,0])
-                    sphere(d=outletDownpipeY);
-                translate([motorX(numOutlets-1),0,0])
-                    sphere(d=outletDownpipeY);
+                hull()
+                {
+                    translate([motorX(0),0,0])
+                        RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                    translate([motorX(numOutlets-1),0,0])
+                        RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
 
-                translate([motorX(0),outletDownpipeY,0])
-                    sphere(d=outletDownpipeY);
-                translate([motorX(numOutlets-1),outletDownpipeY,0])
-                    sphere(d=outletDownpipeY);
-                translate([hoseX(0,numOutlets),ioY,0])
-                    sphere(d=outletDownpipeY);
-                translate([hoseX(numOutlets,numOutlets),ioY,0])
-                    sphere(d=outletDownpipeY);
+                    translate([motorX(0),outletDownpipeY,0])
+                        RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                    translate([motorX(numOutlets-1),outletDownpipeY,0])
+                        RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+
+                    translate([motorX(0),outletDownpipeY,0])
+                        RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                    translate([motorX(numOutlets-1),outletDownpipeY,0])
+                        RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                    
+                    translate([outletHoseX(1, numInlets, numOutlets),ioY,0])
+                        RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                    translate([outletHoseX(numOutlets, numInlets, numOutlets),ioY,0])
+                        RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                    
+                }
+                if (inletsOnOppositeSideToOutlets)
+                {
+                    hull()
+                    {
+                        translate([motorX(0),0,0])
+                            RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                        translate([motorX(numOutlets-1),0,0])
+                            RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+
+                        translate([inletHoseX(1, numInlets, numOutlets),-ioY,0])
+                            RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                        translate([inletHoseX(numInlets, numInlets, numOutlets),-ioY,0])
+                            RoundTopCylinder(d=outletDownpipeY, h=outletDownpipeY);
+                    }
+                }
             }
 
-            // hose connectors,
-            // note n+1 count since this is n outlets + 1 inlet
-            for (hose = [0:numOutlets])
+
+            for (outletNumber = [1:numOutlets])
             {
-                x = hoseX(hose, numOutlets);
-                translate([x,ioY,ioHeight])
-                    ThreeQuaterInchBspThread(hoseThreadLength, internal=false);
+                x = outletHoseX(outletNumber, numInlets, numOutlets);
                 translate([x,ioY,0])
-                    cylinder(d2=25, d1=0,h=ioHeight);
+                    HoseConnectorOuter(hoseThreadLength);
             }
+
+            for (inletNumber = [1:numInlets])
+            {
+                x = inletHoseX(inletNumber, numInlets, numOutlets);
+                y = inletsOnOppositeSideToOutlets ? -ioY:ioY;
+                
+                translate([x,y,0])
+                    HoseConnectorOuter(hoseThreadLength);
             }
+
         }
         union()
         {
-            ManifoldInletPlumbing(numOutlets, ioY);
-            
-            
-            for (outlet = [0:numOutlets-1])
-            {
-                ManifoldOuletPlumbing(outlet, numOutlets);
-            }
-            
-           
-            
-            // cones in hose connectors,
-            // note n+1 count since this is n outlets + 1 inlet
-            for (hose = [0:numOutlets])
-            {
-                x = hose * waterConnectorSpacing + manifoldMidX(numOutlets) - waterConnectorSpacing * numOutlets /2;
-                translate([x,ioY,ioHeight+epsilon])
-                    cylinder(h=hoseThreadLength/2+2*epsilon, d1=boreDiameter, d2=20);
-                translate([x,ioY,ioHeight+epsilon+hoseThreadLength/2])
-                    cylinder(h=hoseThreadLength/2+2*epsilon, d=20);
-            }
-            for (cavity = [0:numOutlets-1])
-            {
-                x = cavity * motorShaftSpacing;
-                
-                translate([x,0,0])
-                {
-                    CardridgeCavity();    
-                }
-            }
-            
-            for (hole =  [0:numOutlets-1])
-            {
-                x = hoseX(hole, numOutlets) + waterConnectorSpacing/2;
-                translate([x,30,outletDownpipeY])
-                MountingScrewClearanceHole();
-            }
+            FluidPathways(numInlets, numOutlets, ioY, hoseThreadLength);
+            MountingHoleSet(numInlets, numOutlets, ioY);
         }
     }
+}
+
+module RoundedCornerCube(width, height, thickness, cornerRadius)
+{
+    translate([cornerRadius,cornerRadius,0])
+        cylinder(r=cornerRadius,h=thickness);
+    translate([width-cornerRadius,cornerRadius,0])
+        cylinder(r=cornerRadius,h=thickness);
+    translate([width-cornerRadius,height-cornerRadius,0])
+        cylinder(r=cornerRadius,h=thickness);
+    translate([cornerRadius,height-cornerRadius,0])
+        cylinder(r=cornerRadius,h=thickness);
+    translate([cornerRadius,0,0])
+        cube([width-2*cornerRadius,height,thickness]);
+    translate([0,cornerRadius,0])
+        cube([width,height-2*cornerRadius,thickness]);
+    
 }
 
 
@@ -452,14 +654,13 @@ module MotorStandoffBracket(addLeftFoot, addRightFoot)
             if (addLeftFoot)
             {
                 translate([-18,-4,0])
-                    cube([22,15,motorPlateThickness]);
+                    RoundedCornerCube(22, 15, motorPlateThickness, 4);
             }
             if (addRightFoot)
             {
                 translate([-4,-4,0])
-                    cube([22,15,motorPlateThickness]);
+                    RoundedCornerCube(22, 15, motorPlateThickness, 4);
             }
-            
             
             translate([-4,-4,0])
                 cube([8,4,bracketHeight]);
@@ -498,6 +699,7 @@ module MotorStandoffBracket(addLeftFoot, addRightFoot)
 
 module Nema17MotorPlate(numOutlets)
 {
+    turretHeight = 4;
     
     difference()
     {
@@ -530,6 +732,26 @@ module Nema17MotorPlate(numOutlets)
                 translate([-(motorBodyWidth/2 + motorGap),-motorBodyWidth/2,0])
                     cube([numOutlets*motorBodyWidth + (numOutlets-1) * motorGap + 2* motorGap,motorBodyWidth,motorPlateThickness]);
             }
+            
+            // The tapped holes in the motor are too short for the common screw legths I happen to have
+            // Add on turrets for each scre below the plate to pack them out
+            
+            screw_spacing = nema_motor_screw_spacing(size=17);
+            
+            for (motor = [0:numOutlets-1])
+            {
+                motorX = motor * motorShaftSpacing;
+                translate([motorX,0,-turretHeight])
+                    xspread(screw_spacing) 
+                    {
+                        yspread(screw_spacing) 
+                        {
+                            cylinder(h=turretHeight,d=8);
+                        }
+                    }
+            }
+
+            
         }
         union()
         {
@@ -548,18 +770,18 @@ module Nema17MotorPlate(numOutlets)
             for (motor = [0:numOutlets-1])
             {
                 motorX = motor * motorShaftSpacing;
-                translate([motorX,0,motorPlateThickness/2])
-                    nema_mount_holes(size=17, depth=motorPlateThickness+2*epsilon, l=0);
+                translate([motorX,0,0])
+                    nema_mount_holes(size=17, depth=motorPlateThickness+2*turretHeight+2*epsilon, l=0, align = V_CENTER);
             }
         }
     }
     
 }
 
-module Assembly(numOutlets = 2)
+module Assembly(numInlets = 2, numOutlets = 2)
 {
     color("cyan")
-        NWayManifold(numOutlets);
+        NWayManifold(numInlets, numOutlets);
     
     translate([0,0,84])
         color("cyan")
@@ -607,22 +829,27 @@ module Assembly(numOutlets = 2)
                 NemaMotorTapJoint();
 
         translate([motorX,0,11])
-                Valve1908F();
+                TapGland1908F();
 
     }
 }
 
-Assembly();
+module HoleClashChecker()
+{
+    numInlets=1;
+    numOutlets=2;
+    ioY=50;
+    hoseThreadLength=11;
+    FluidPathways(numInlets, numOutlets, ioY, hoseThreadLength);
+    MountingHoleSet(numInlets, numOutlets, ioY);
+}
+
+//Assembly();
+
+//HoleClashChecker();
 
 
-// TODO:
-// Simplify turret body as single rotation
-// Add spacers to motor bracket to account for long screws
-// Make seal for hose adapters thinner
-// Add rotated-for-print bits
-// Allow for case numOutlets = 1 or other odd value
-// Optionaly combine motor brackets for smaller manifolds
-// Model assembly and mounting screws
-// Model hose adapters
+NWayManifold(numInlets = 2, numOutlets = 4);
+
 
 
